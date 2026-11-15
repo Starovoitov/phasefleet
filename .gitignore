@@ -35,3 +35,4 @@ go.work.sum
 
 # Local consultation notes (goal, plan, design constraints)
 /notes/
+.cursor/rules/notes.mdc
