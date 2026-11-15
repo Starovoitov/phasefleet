@@ -100,7 +100,7 @@ func spreadPhases(n int) []Phase {
 	return phases
 }
 
-func stepPopulation(k Kuramoto, phases []Phase, dt float64) []Phase {
+func stepPopulation(s Stepper, phases []Phase, dt float64) []Phase {
 	next := make([]Phase, len(phases))
 	for i, own := range phases {
 		neighbors := make([]Observation, 0, len(phases)-1)
@@ -110,7 +110,7 @@ func stepPopulation(k Kuramoto, phases []Phase, dt float64) []Phase {
 			}
 			neighbors = append(neighbors, Observation{Phase: p})
 		}
-		next[i] = k.Step(own, neighbors, dt)
+		next[i] = s.Step(own, neighbors, dt)
 	}
 	return next
 }
