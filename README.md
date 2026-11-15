@@ -4,7 +4,7 @@ Coordinator-free phase coordination for service fleets. Members agree on a share
 
 This is coordination of load, not a clock. Wall time stays with chrony, NTP, PTP, or a cloud time source.
 
-The numbers below come from the in-process simulator. `cmd/node` and `cmd/sink` do not run the loop yet: they parse flags and exit. The step they will call is the same one the simulator calls.
+The numbers below come from the in-process simulator. `cmd/node` runs the same step over UDP. `cmd/sink` still only parses flags and exits; a firing with `-sink` set is a POST, and an empty address is a log line.
 
 ## The problem
 
@@ -31,15 +31,15 @@ Jitter and hash are initial phases, then Kuramoto with `K = 0`: free rotation at
 
 One tick, for every live member:
 
-1. Collect the neighbor phases that have arrived by this tick. A delayed or lost announcement is simply absent. The step uses whoever is present.
+1. Collect the neighbor phases currently held. The simulator includes a neighbor once its delay has elapsed. The UDP node keeps the newest packet from each peer: a loss leaves the previous phase in place, and a peer that has never been heard stays out. An older `seq` is discarded.
 2. Compute the next phase with the shared `Stepper`. The caller applies delay before the call. The core never sees a clock or an RTT.
 3. Publish the new phase. A dead member does not step and is not a neighbor.
 
 A firing is a forward crossing of 0. Arrival at the shared resource is send time plus that member's delay to the sink. The peak is the deepest overlap of the half-open intervals `[arrival, arrival+d)`.
 
-On the wire the announcement is `{id, phase, seq, sent_at}`. `seq` drops a stale packet. `sent_at` is reserved so a later geo run can shift a phase by a measured RTT before the step. Packet loss is normal: the next tick proceeds with a thinner neighborhood.
+On the wire the announcement is `{id, phase, seq, sent_at}`. `sent_at` is written so a later geo run can shift a phase by a measured RTT. The step does not use it yet. A lost packet does not stop the tick.
 
-The simulator applies this synchronously in one process, including a per-pair delay in ticks. The UDP node will do the same step from the last packet it has heard.
+The simulator applies this synchronously in one process, including a per-pair delay in ticks. The UDP node steps from the last packet it has heard from each peer.
 
 ## How well it works
 
@@ -85,7 +85,8 @@ Go 1.27.
 go test ./...
 go build -o bin/ ./cmd/sim ./cmd/node ./cmd/sink
 go run ./cmd/sim -n 100 -mode desync
-go run ./cmd/node -listen :9000
+go run ./cmd/node -id a -listen 127.0.0.1:9001 -peers b=127.0.0.1:9002
+go run ./cmd/node -id b -listen 127.0.0.1:9002 -peers a=127.0.0.1:9001
 go run ./cmd/sink -listen :8080
 ```
 
@@ -93,8 +94,8 @@ go run ./cmd/sink -listen :8080
 
 - `internal/core` — phase wrap, order parameter, Kuramoto and DESYNC `Stepper`
 - `internal/sim` — in-process fleet, delay, peak, recovery
-- `internal/gossip` — `{id, phase, seq, sent_at}`, `PeerSource`, `Transport`
+- `internal/gossip` — UDP transport, `{id, phase, seq, sent_at}`, `PeerSource`
 - `experiments` — the grid above, and the script that writes the table
 - `cmd/sim` — one simulated fleet
-- `cmd/node` — one member; the UDP loop is not wired yet
+- `cmd/node` — one member: tick, UDP gossip, fire
 - `cmd/sink` — firing log and peak concurrency; the server loop is not wired yet
