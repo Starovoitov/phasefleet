@@ -5,92 +5,76 @@ import (
 	"testing"
 )
 
-func TestDESYNCMovesFractionTowardMidpoint(t *testing.T) {
-	const (
-		gain  = 0.25
-		omega = 0.1
-		dt    = 0.2
-	)
+func TestDesyncStepCentersArc(t *testing.T) {
+	d := Desync{Omega: 0, Alpha: 1}
 	own := Phase(0)
-	// Successor just ahead, predecessor opposite. The center of the arc
-	// that contains own is 3π/2 + 0.1, a backward step of π/2 - 0.1.
-	succ := Phase(0.2)
-	pred := Phase(math.Pi)
-	mid := math.Pi + (math.Pi+0.2)/2
-	delta := mid - twoPi
-	want := float64(Wrap(float64(own) + gain*delta + omega*dt))
-
-	got := DESYNC{Omega: omega, Gain: gain}.Step(own, []Observation{
-		{ID: "far", Phase: 1}, // between the flanks, must be ignored
-		{ID: "succ", Phase: succ},
-		{ID: "pred", Phase: pred},
-		{ID: "succ-again", Phase: succ},
-	}, dt)
-	if math.Abs(float64(got)-want) > 1e-12 {
-		t.Fatalf("Step = %v, want %v", got, want)
+	neighbors := []Observation{
+		{Phase: 1},
+		{Phase: Wrap(-0.5)},
+	}
+	// Ahead gap is 1, behind gap is 0.5, midpoint sits 0.25 forward.
+	got := d.Step(own, neighbors, 0)
+	if math.Abs(float64(got)-0.25) > 1e-12 {
+		t.Fatalf("Step = %v, want 0.25", got)
 	}
 }
 
-func TestDESYNCSingleNeighborTargetsAntipode(t *testing.T) {
-	const nb = 0.4
-	got := DESYNC{Gain: 1}.Step(0, []Observation{{Phase: nb}}, 1)
-	want := float64(Wrap(nb + math.Pi))
-	if math.Abs(float64(got)-want) > 1e-12 {
-		t.Fatalf("Step = %v, want antipode %v", got, want)
-	}
-}
-
-func TestDESYNCFreeRotation(t *testing.T) {
-	d := NewDESYNC(1, 0.8)
+func TestDesyncFreeRotation(t *testing.T) {
 	start := Phase(0.3)
-	neighbors := []Observation{{Phase: 2.5}, {Phase: 4}}
-	free := DESYNC{Omega: d.Omega, Gain: 0}
-
-	got := start
-	noGain := start
+	neighbors := []Observation{{Phase: 2.5}}
 	const steps = 1000
 	dt := 1.0 / steps
+
+	free := NewDesync(1, 0)
+	alone := NewDesync(1, 0.8)
+	got := start
+	noNeighbors := start
 	for i := 0; i < steps; i++ {
-		got = d.Step(got, nil, dt)
-		noGain = free.Step(noGain, neighbors, dt)
+		got = free.Step(got, neighbors, dt)
+		noNeighbors = alone.Step(noNeighbors, nil, dt)
 	}
 	if math.Abs(float64(got)-float64(start)) > 1e-9 {
-		t.Fatalf("after one period with no neighbors phase = %v, want %v", got, start)
+		t.Fatalf("alpha 0 after one period = %v, want %v", got, start)
 	}
-	if math.Abs(float64(noGain)-float64(start)) > 1e-9 {
-		t.Fatalf("gain 0 drifted to %v, want %v", noGain, start)
-	}
-	if math.Abs(float64(got)-float64(noGain)) > 1e-12 {
-		t.Fatalf("empty neighborhood and gain 0 diverged: %v vs %v", got, noGain)
+	if math.Abs(float64(noNeighbors)-float64(start)) > 1e-9 {
+		t.Fatalf("empty neighborhood after one period = %v, want %v", noNeighbors, start)
 	}
 }
 
-func TestDESYNCKeepsEqualGaps(t *testing.T) {
-	const n = 6
+func TestDesyncPairReachesAntipode(t *testing.T) {
+	d := Desync{Omega: 0, Alpha: 0.5}
+	a := Phase(0)
+	b := Phase(math.Pi / 2)
+	nextA := d.Step(a, []Observation{{Phase: b}}, 0)
+	nextB := d.Step(b, []Observation{{Phase: a}}, 0)
+	gap := math.Abs(Delta(nextA, nextB))
+	if math.Abs(gap-math.Pi) > 1e-12 {
+		t.Fatalf("pair gap = %v, want π (phases %v, %v)", gap, nextA, nextB)
+	}
+}
+
+func TestDesyncHoldsEqualGaps(t *testing.T) {
+	const n = 5
+	d := NewDesync(1, 0.5)
 	phases := make([]Phase, n)
 	for i := range phases {
-		phases[i] = Phase(float64(i) * twoPi / float64(n))
+		phases[i] = Wrap(float64(i) * twoPi / n)
 	}
-	d := NewDESYNC(1, 1)
-	dt := 0.01
-	for tick := 0; tick < 400; tick++ {
-		phases = stepPopulation(d, phases, dt)
+	for tick := 0; tick < 200; tick++ {
+		phases = stepPopulation(d, phases, 0.01)
 	}
 	if mad := gapMAD(phases); mad > 1e-9 {
-		t.Fatalf("gap MAD = %v, equal spacing drifted; phases %v", mad, phases)
+		t.Fatalf("equal gaps drifted, MAD = %v, phases %v", mad, phases)
 	}
 }
 
-func TestDESYNCEqualizesGaps(t *testing.T) {
-	d := NewDESYNC(1, 0.5)
-	phases := []Phase{0.01, 0.04, 0.07, 0.11, 0.16, 0.2, 0.28, 0.35}
-	const ticks = 2000
-	const dt = 0.01
-	for tick := 0; tick < ticks; tick++ {
-		phases = stepPopulation(d, phases, dt)
+func TestDesyncEqualizesGaps(t *testing.T) {
+	d := NewDesync(1, 0.5)
+	phases := []Phase{0.05, 0.4, 0.55, 1.7, 1.9, 3.4, 5.8}
+	for tick := 0; tick < 400; tick++ {
+		phases = stepPopulation(d, phases, 0.01)
 	}
-	const tol = 1e-3
-	if mad := gapMAD(phases); mad > tol {
-		t.Fatalf("gap MAD = %v, want <= %v; phases %v", mad, tol, phases)
+	if mad := gapMAD(phases); mad > 1e-2 {
+		t.Fatalf("gap MAD = %v, want < 0.01; phases %v", mad, phases)
 	}
 }

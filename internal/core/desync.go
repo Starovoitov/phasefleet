@@ -1,76 +1,65 @@
 package core
 
-import "math"
-
-// DESYNC moves a node toward the midpoint of the arc between the neighbor
-// behind it and the neighbor ahead of it on the phase circle.
+// Desync moves one phase toward the middle of the arc between the
+// neighbors immediately ahead and behind, then adds the natural rotation.
 //
-// Gain is the fraction of the remaining distance to that midpoint taken on
-// this tick. 0 is free rotation. 1 lands on the midpoint in one call.
-// Omega is the natural frequency in radians per unit time, so the phase
-// keeps turning and can cross 0. dt scales only that rotation; the fraction
-// itself is per call.
-//
-// No neighbor at a different phase means pure rotation. Equal gaps are the
-// equilibrium. A negative Kuramoto coupling is a different stepper: it can
-// hold two antipodal clumps, and those clumps do not spread the load.
-type DESYNC struct {
+// Ahead is the smallest positive step forward on the circle. Behind is
+// the smallest positive step backward. One other phase fills both roles,
+// so a pair is driven to opposite sides. Alpha is the fraction of that
+// centering move taken on this tick. Zero leaves free rotation. An empty
+// neighborhood, or one where every observation shares own phase, also
+// leaves free rotation.
+type Desync struct {
 	Omega float64
-	Gain  float64
+	Alpha float64
 }
 
-// NewDESYNC returns a stepper with natural frequency ω₀ = 2π/period.
-// period uses the same time unit as dt in Step. gain is the per-tick fraction.
-func NewDESYNC(period, gain float64) DESYNC {
-	return DESYNC{Omega: twoPi / period, Gain: gain}
+// NewDesync returns a stepper with natural frequency ω₀ = 2π/period.
+// period uses the same time unit as dt in Step. alpha is the per-tick
+// fraction of the move toward the midpoint, normally in (0, 1].
+func NewDesync(period, alpha float64) Desync {
+	return Desync{Omega: twoPi / period, Alpha: alpha}
 }
 
 // Step implements Stepper.
-func (d DESYNC) Step(own Phase, neighbors []Observation, dt float64) Phase {
-	rot := d.Omega * dt
-	if d.Gain == 0 {
-		return Wrap(float64(own) + rot)
+func (d Desync) Step(own Phase, neighbors []Observation, dt float64) Phase {
+	advanced := float64(own) + d.Omega*dt
+	if d.Alpha == 0 {
+		return Wrap(advanced)
 	}
-	pred, succ, ok := flanks(own, neighbors)
+	ahead, behind, ok := neighborGaps(own, neighbors)
 	if !ok {
-		return Wrap(float64(own) + rot)
+		return Wrap(advanced)
 	}
-	shift := d.Gain * Delta(own, arcMidpoint(pred, succ))
-	return Wrap(float64(own) + shift + rot)
+	shift := d.Alpha * (ahead - behind) / 2
+	return Wrap(advanced + shift)
 }
 
-// flanks returns the nearest phase behind own and the nearest phase ahead.
-// A neighbor sitting on own is not a flank. ok is false when none remain.
-func flanks(own Phase, neighbors []Observation) (pred, succ Phase, ok bool) {
-	var predFwd, succFwd float64
+// neighborGaps reports the forward gap to the nearest phase ahead and the
+// backward gap to the nearest phase behind. ok is false when no observation
+// sits off own phase.
+func neighborGaps(own Phase, neighbors []Observation) (ahead, behind float64, ok bool) {
+	bestAhead := twoPi
+	bestBehind := twoPi
 	for _, nb := range neighbors {
-		fwd := float64(Wrap(float64(nb.Phase) - float64(own)))
-		if fwd == 0 {
+		fw := float64(Wrap(float64(nb.Phase) - float64(own)))
+		if fw == 0 {
 			continue
 		}
-		if !ok || fwd < succFwd {
-			succFwd = fwd
-			succ = nb.Phase
+		bk := twoPi - fw
+		if fw < bestAhead {
+			bestAhead = fw
 		}
-		if !ok || fwd > predFwd {
-			predFwd = fwd
-			pred = nb.Phase
+		if bk < bestBehind {
+			bestBehind = bk
 		}
 		ok = true
 	}
-	return pred, succ, ok
-}
-
-// arcMidpoint is the center of the forward arc from pred to succ, the arc
-// that contains own. One distinct neighbor makes pred and succ the same
-// point, so the arc is the full circle and the center is the antipode.
-func arcMidpoint(pred, succ Phase) Phase {
-	arc := float64(Wrap(float64(succ) - float64(pred)))
-	if arc == 0 {
-		return Wrap(float64(pred) + math.Pi)
+	if !ok {
+		return 0, 0, false
 	}
-	return Wrap(float64(pred) + arc/2)
+	return bestAhead, bestBehind, true
 }
 
-// Compile-time check that DESYNC is a Stepper.
-var _ Stepper = DESYNC{}
+// Compile-time check that Desync is a Stepper.
+var _ Stepper = Desync{}
