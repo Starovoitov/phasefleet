@@ -30,7 +30,8 @@ func main() {
 	period := flag.Float64("T", 1, "period of this member")
 	dt := flag.Float64("dt", -1, "tick length; default T/100")
 	phase := flag.Float64("phase", math.NaN(), "initial phase in radians; default is a hash of -id")
-	sink := flag.String("sink", "", "POST target on a firing; empty logs the firing only")
+	sink := flag.String("sink", "", "sink base URL; empty logs the firing only")
+	metricsAddr := flag.String("metrics", ":9100", "HTTP address for /metrics; empty disables it")
 	ticks := flag.Int("ticks", 0, "steps to run; 0 runs until interrupted")
 	flag.Parse()
 
@@ -88,12 +89,25 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var onPhase func(float64)
+	if *metricsAddr != "" {
+		metrics := newPhaseMetrics()
+		onPhase = metrics.set
+		go func() {
+			if err := serveMetrics(ctx, *metricsAddr, metrics.handler); err != nil {
+				slog.Error("metrics", "err", err)
+				stop()
+			}
+		}()
+	}
+
 	slog.Info("phasefleet node",
 		"id", *id,
 		"listen", tr.Addr(),
 		"strategy", name,
 		"peers", len(peers.List),
 		"sink", *sink,
+		"metrics", *metricsAddr,
 	)
 	member := &node{
 		cfg: config{
@@ -106,6 +120,7 @@ func main() {
 			peers:   peers,
 			ticks:   *ticks,
 			wait:    time.Duration(step * float64(time.Second)),
+			onPhase: onPhase,
 		},
 		tr: tr,
 	}

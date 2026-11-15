@@ -7,16 +7,20 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Starovoitov/phasefleet/internal/core"
 	"github.com/Starovoitov/phasefleet/internal/gossip"
+	"github.com/Starovoitov/phasefleet/internal/sink"
 )
 
 func TestTwoNodesConverge(t *testing.T) {
@@ -102,6 +106,39 @@ func TestFirePostsToSink(t *testing.T) {
 	}
 }
 
+func TestFireRaisesSinkPeak(t *testing.T) {
+	record := sink.New(time.Second)
+	srv := httptest.NewServer(sink.Handler(record))
+	defer srv.Close()
+
+	n := testNode("a", twoPi-0.01, idleTransport{}, srv.URL)
+	n.cfg.ticks = 3
+	n.cfg.wait = 0
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := n.run(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if record.Peak() < 1 {
+		t.Fatalf("peak = %d, want at least 1", record.Peak())
+	}
+	if got := scrapeGauge(t, string(body), "phasefleet_sink_peak"); got != float64(record.Peak()) {
+		t.Fatalf("phasefleet_sink_peak = %v, want %d", got, record.Peak())
+	}
+}
+
 func TestEmptySinkOnlyLogs(t *testing.T) {
 	n := testNode("a", twoPi-0.01, idleTransport{}, "")
 	n.cfg.ticks = 3
@@ -110,6 +147,52 @@ func TestEmptySinkOnlyLogs(t *testing.T) {
 	defer cancel()
 	if err := n.run(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFireURL(t *testing.T) {
+	got, err := fireURL("http://127.0.0.1:8080")
+	if err != nil || got != "http://127.0.0.1:8080/fire" {
+		t.Fatalf("base = %q, %v", got, err)
+	}
+	got, err = fireURL("http://127.0.0.1:8080/")
+	if err != nil || got != "http://127.0.0.1:8080/fire" {
+		t.Fatalf("slash = %q, %v", got, err)
+	}
+	got, err = fireURL("http://127.0.0.1:8080/fire")
+	if err != nil || got != "http://127.0.0.1:8080/fire" {
+		t.Fatalf("path = %q, %v", got, err)
+	}
+}
+
+func TestPhaseOffsetRemovesRotation(t *testing.T) {
+	const omega = twoPi
+	elapsed := 1500 * time.Millisecond
+	phase := core.Wrap(1 + omega*elapsed.Seconds())
+	got := phaseOffset(phase, omega, elapsed)
+	if math.Abs(got-1) > 1e-9 {
+		t.Fatalf("offset = %v, want 1", got)
+	}
+}
+
+func TestPhaseMetrics(t *testing.T) {
+	m := newPhaseMetrics()
+	m.set(1.25)
+	srv := httptest.NewServer(m.handler)
+	defer srv.Close()
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "phasefleet_node_phase_offset_radians 1.25") {
+		t.Fatalf("metrics:\n%s", body)
 	}
 }
 
@@ -203,6 +286,23 @@ func listenNode(t *testing.T) *gossip.UDP {
 	}
 	t.Cleanup(func() { _ = u.Close() })
 	return u
+}
+
+func scrapeGauge(t *testing.T, body, name string) float64 {
+	t.Helper()
+	for _, line := range strings.Split(body, "\n") {
+		if !strings.HasPrefix(line, name+" ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		v, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	t.Fatalf("metric %s not found", name)
+	return 0
 }
 
 type idleTransport struct {

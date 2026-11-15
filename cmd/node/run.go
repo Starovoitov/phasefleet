@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type config struct {
 	ticks   int
 	wait    time.Duration
 	log     *slog.Logger
+	onPhase func(float64)
 }
 
 func (c config) logger() *slog.Logger {
@@ -46,10 +48,11 @@ type node struct {
 	cfg config
 	tr  gossip.Transport
 
-	mu    sync.Mutex
-	phase core.Phase
-	heard map[string]core.Phase
-	seq   uint64
+	mu      sync.Mutex
+	phase   core.Phase
+	heard   map[string]core.Phase
+	seq     uint64
+	started time.Time
 }
 
 func (n *node) run(parent context.Context) error {
@@ -58,6 +61,7 @@ func (n *node) run(parent context.Context) error {
 
 	n.phase = n.cfg.phase
 	n.heard = map[string]core.Phase{}
+	n.started = time.Now()
 
 	errc := make(chan error, 1)
 	go func() {
@@ -100,6 +104,7 @@ func (n *node) receive(ctx context.Context) error {
 }
 
 func (n *node) drive(ctx context.Context) error {
+	n.notePhase()
 	if err := n.publish(ctx); err != nil {
 		return err
 	}
@@ -129,6 +134,7 @@ func (n *node) step(ctx context.Context) error {
 	n.mu.Lock()
 	n.phase = next
 	n.mu.Unlock()
+	n.notePhase()
 
 	if err := n.publish(ctx); err != nil {
 		return err
@@ -222,7 +228,21 @@ func fired(prev, next core.Phase, omega, dt float64) bool {
 	return boundary <= start+add+1e-9
 }
 
+func (n *node) notePhase() {
+	if n.cfg.onPhase == nil {
+		return
+	}
+	n.mu.Lock()
+	phase := n.phase
+	n.mu.Unlock()
+	n.cfg.onPhase(phaseOffset(phase, n.cfg.omega, time.Since(n.started)))
+}
+
 func postFire(ctx context.Context, sink, id string) error {
+	target, err := fireURL(sink)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 	body, err := json.Marshal(struct {
@@ -231,7 +251,7 @@ func postFire(ctx context.Context, sink, id string) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sink, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -249,6 +269,22 @@ func postFire(ctx context.Context, sink, id string) error {
 		return copyErr
 	}
 	return closeErr
+}
+
+// fireURL posts to /fire when the flag is only a host. A path that is
+// already set, including /fire, is kept.
+func fireURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("sink %q must be an http url", raw)
+	}
+	if u.Path == "" || u.Path == "/" {
+		u.Path = "/fire"
+	}
+	return u.String(), nil
 }
 
 // phaseOfID is the default initial phase. The mix matches the simulator's

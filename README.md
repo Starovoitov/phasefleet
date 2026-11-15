@@ -4,7 +4,7 @@ Coordinator-free phase coordination for service fleets. Members agree on a share
 
 This is coordination of load, not a clock. Wall time stays with chrony, NTP, PTP, or a cloud time source.
 
-The numbers below come from the in-process simulator. `cmd/node` runs the same step over UDP. `cmd/sink` still only parses flags and exits; a firing with `-sink` set is a POST, and an empty address is a log line.
+The numbers below come from the in-process simulator. `cmd/node` runs the same step over UDP and POSTs a firing to `cmd/sink`. The sink times that arrival on its own clock and serves concurrency, peak, and the interval histogram at `/metrics`. An empty `-sink` only logs the firing. The node also serves `θ − ω₀·t` at its own `/metrics`.
 
 ## The problem
 
@@ -85,9 +85,9 @@ Go 1.27.
 go test ./...
 go build -o bin/ ./cmd/sim ./cmd/node ./cmd/sink
 go run ./cmd/sim -n 100 -mode desync
-go run ./cmd/node -id a -listen 127.0.0.1:9001 -peers b=127.0.0.1:9002
-go run ./cmd/node -id b -listen 127.0.0.1:9002 -peers a=127.0.0.1:9001
-go run ./cmd/sink -listen :8080
+go run ./cmd/sink -listen :8080 -d 1
+go run ./cmd/node -id a -listen 127.0.0.1:9001 -peers b=127.0.0.1:9002 -sink http://127.0.0.1:8080 -metrics :9101
+go run ./cmd/node -id b -listen 127.0.0.1:9002 -peers a=127.0.0.1:9001 -sink http://127.0.0.1:8080 -metrics :9102
 ```
 
 ## Layout
@@ -95,7 +95,8 @@ go run ./cmd/sink -listen :8080
 - `internal/core` — phase wrap, order parameter, Kuramoto and DESYNC `Stepper`
 - `internal/sim` — in-process fleet, delay, peak, recovery
 - `internal/gossip` — UDP transport, `{id, phase, seq, sent_at}`, `PeerSource`
+- `internal/sink` — arrivals, peak, interval histogram
 - `experiments` — the grid above, and the script that writes the table
 - `cmd/sim` — one simulated fleet
-- `cmd/node` — one member: tick, UDP gossip, fire
-- `cmd/sink` — firing log and peak concurrency; the server loop is not wired yet
+- `cmd/node` — one member: tick, UDP gossip, fire, phase offset
+- `cmd/sink` — HTTP arrivals, peak, `/metrics`
