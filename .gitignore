@@ -33,6 +33,9 @@ go.work.sum
 # .idea/
 # .vscode/
 
+# One-off simulator trace
+/sim.csv
+
 # Local consultation notes (goal, plan, design constraints)
 /notes/
 .cursor/rules/notes.mdc
