@@ -34,10 +34,13 @@ func main() {
 	if step < 0 {
 		step = *period / 100
 	}
-	coupling := *k
-	if name == sim.StrategyKuramoto && coupling == 0 && *mode == "sync" {
-		coupling = 2
-	}
+	kSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "K" {
+			kSet = true
+		}
+	})
+	coupling := defaultKuramotoK(name, *k, kSet)
 	cfg := sim.Config{
 		N:            *n,
 		D:            *d,
@@ -90,15 +93,23 @@ func main() {
 	)
 }
 
+// defaultKuramotoK turns an omitted -K into attraction. An explicit -K, including 0, is kept.
+func defaultKuramotoK(name string, k float64, kSet bool) float64 {
+	if name == sim.StrategyKuramoto && !kSet {
+		return 2
+	}
+	return k
+}
+
 func mapMode(mode string) string {
 	switch mode {
 	case "", "desync":
 		return sim.StrategyDesync
 	case "jitter":
 		return sim.StrategyJitter
-	case "sync":
+	case "sync", "kuramoto":
 		return sim.StrategyKuramoto
-	case "aligned", "hash", "kuramoto":
+	case "aligned", "hash":
 		return mode
 	default:
 		fmt.Fprintf(os.Stderr, "unknown mode %q\n", mode)
