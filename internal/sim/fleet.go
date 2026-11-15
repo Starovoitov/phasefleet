@@ -116,7 +116,7 @@ func New(cfg Config) (*Fleet, error) {
 		return nil, fmt.Errorf("n must be positive")
 	}
 	if cfg.T <= 0 {
-		return nil, fmt.Errorf("T must be positive")
+		return nil, fmt.Errorf("t must be positive")
 	}
 	if cfg.D < 0 {
 		return nil, fmt.Errorf("d must be non-negative")

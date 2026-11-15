@@ -194,12 +194,16 @@ func negativeK(n, slots int) row {
 	}
 }
 
-func writeTrials(path string, rows []row) error {
+func writeTrials(path string, rows []row) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}()
 	w := csv.NewWriter(f)
 	header := []string{
 		"strategy", "N", "slots", "d", "T", "seed", "trial", "peak", "median_interval",
@@ -234,12 +238,16 @@ func writeTrials(path string, rows []row) error {
 	return w.Error()
 }
 
-func writeRecovery(path string, series []sim.Point) error {
+func writeRecovery(path string, series []sim.Point) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}()
 	w := csv.NewWriter(f)
 	if err := w.Write([]string{"strategy", "tick", "gap_mad", "alive"}); err != nil {
 		return err
