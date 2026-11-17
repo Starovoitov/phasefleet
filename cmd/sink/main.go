@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,12 +13,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Starovoitov/phasefleet/internal/clienv"
 	"github.com/Starovoitov/phasefleet/internal/sink"
 )
 
 func main() {
-	listen := flag.String("listen", ":8080", "HTTP listen address")
-	d := flag.Float64("d", 1, "task duration in seconds")
+	dDefault, dSet, err := clienv.Float("PHASEFLEET_D")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+	if !dSet {
+		dDefault = 1
+	}
+	listen := flag.String("listen", clienv.String("PHASEFLEET_LISTEN", ":8080"), "HTTP listen address")
+	d := flag.Float64("d", dDefault, "task duration in seconds")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))

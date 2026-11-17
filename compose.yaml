@@ -1,0 +1,98 @@
+# One image, six members, the sink, Prometheus, and Grafana.
+# STRATEGY=desync is the default. Switching to Kuramoto does not rebuild:
+#   PowerShell:  $env:STRATEGY = "kuramoto"; docker compose up
+#   POSIX:       STRATEGY=kuramoto docker compose up
+# Leave K unset and an omitted Kuramoto coupling stays 2.
+# T is the period in seconds, ALPHA is the DESYNC step, D is the task length.
+
+name: phasefleet
+
+x-image: &image
+  build: .
+  image: phasefleet
+
+x-node-env: &node-env
+  PHASEFLEET_STRATEGY: ${STRATEGY:-desync}
+  PHASEFLEET_ALPHA: ${ALPHA:-0.5}
+  PHASEFLEET_T: ${T:-10}
+  PHASEFLEET_K: ${K-}
+  PHASEFLEET_DT: ${DT-}
+  PHASEFLEET_SINK: http://sink:8080
+  PHASEFLEET_LISTEN: :9000
+  PHASEFLEET_METRICS: :9100
+
+x-node: &node
+  <<: *image
+  depends_on:
+    - sink
+
+services:
+  sink:
+    <<: *image
+    entrypoint: ["/sink"]
+    environment:
+      PHASEFLEET_LISTEN: :8080
+      PHASEFLEET_D: ${D:-1}
+    ports:
+      - "8080:8080"
+
+  node-a:
+    <<: *node
+    environment:
+      <<: *node-env
+      PHASEFLEET_ID: a
+      PHASEFLEET_PEERS: b=node-b:9000,c=node-c:9000,d=node-d:9000,e=node-e:9000,f=node-f:9000
+  node-b:
+    <<: *node
+    environment:
+      <<: *node-env
+      PHASEFLEET_ID: b
+      PHASEFLEET_PEERS: a=node-a:9000,c=node-c:9000,d=node-d:9000,e=node-e:9000,f=node-f:9000
+  node-c:
+    <<: *node
+    environment:
+      <<: *node-env
+      PHASEFLEET_ID: c
+      PHASEFLEET_PEERS: a=node-a:9000,b=node-b:9000,d=node-d:9000,e=node-e:9000,f=node-f:9000
+  node-d:
+    <<: *node
+    environment:
+      <<: *node-env
+      PHASEFLEET_ID: d
+      PHASEFLEET_PEERS: a=node-a:9000,b=node-b:9000,c=node-c:9000,e=node-e:9000,f=node-f:9000
+  node-e:
+    <<: *node
+    environment:
+      <<: *node-env
+      PHASEFLEET_ID: e
+      PHASEFLEET_PEERS: a=node-a:9000,b=node-b:9000,c=node-c:9000,d=node-d:9000,f=node-f:9000
+  node-f:
+    <<: *node
+    environment:
+      <<: *node-env
+      PHASEFLEET_ID: f
+      PHASEFLEET_PEERS: a=node-a:9000,b=node-b:9000,c=node-c:9000,d=node-d:9000,e=node-e:9000
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    depends_on:
+      - sink
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:13.1.10
+    depends_on:
+      - prometheus
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_UID: phasefleet
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro

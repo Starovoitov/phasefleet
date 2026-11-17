@@ -1,0 +1,141 @@
+{
+  "uid": "phasefleet",
+  "title": "phasefleet",
+  "tags": ["phasefleet"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "graphTooltip": 1,
+  "time": {"from": "now-15m", "to": "now"},
+  "fiscalYearStartMonth": 0,
+  "editable": true,
+  "links": [],
+  "annotations": {"list": []},
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Sink",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Peak and current concurrency",
+      "description": "How many task runs overlap. Peak is the highest overlap since the sink started. Current is how many arrivals are still inside their duration d.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 1},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "phasefleet_sink_peak",
+          "legendFormat": "peak"
+        },
+        {
+          "refId": "B",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "phasefleet_sink_concurrency",
+          "legendFormat": "current"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {"drawStyle": "line", "fillOpacity": 15, "spanNulls": true}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Intervals between arrivals",
+      "description": "Gap from one firing to the next, as it landed on the sink clock.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 1},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(phasefleet_sink_interval_seconds_bucket[1m])))",
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(phasefleet_sink_interval_seconds_bucket[1m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {"drawStyle": "line", "fillOpacity": 10, "spanNulls": true}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      }
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Phase relative to the process clock",
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9},
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "θ − ω₀·t",
+      "description": "Phase minus ω₀·t since the member started, wrapped onto [0, 2π). Raw phase in PromQL is not used for the order parameter r.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 10},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "phasefleet_node_phase_offset_radians",
+          "legendFormat": "{{id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rad",
+          "min": 0,
+          "max": 6.2832,
+          "custom": {"drawStyle": "line", "fillOpacity": 0, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      }
+    },
+    {
+      "id": 6,
+      "type": "text",
+      "title": "",
+      "gridPos": {"h": 3, "w": 24, "x": 0, "y": 18},
+      "options": {
+        "mode": "markdown",
+        "content": "This series is θ − ω₀·t. Raw phase in PromQL is not a source for the order parameter r: scrapes are not simultaneous, and the phase keeps rotating, so a synchronized fleet looks disordered."
+      }
+    }
+  ]
+}

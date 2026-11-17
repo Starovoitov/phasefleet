@@ -88,7 +88,16 @@ go run ./cmd/sim -n 100 -mode desync
 go run ./cmd/sink -listen :8080 -d 1
 go run ./cmd/node -id a -listen 127.0.0.1:9001 -peers b=127.0.0.1:9002 -sink http://127.0.0.1:8080 -metrics :9101
 go run ./cmd/node -id b -listen 127.0.0.1:9002 -peers a=127.0.0.1:9001 -sink http://127.0.0.1:8080 -metrics :9102
+docker compose up
 ```
+
+## Local stand
+
+`docker compose up` builds one image and starts six members, the sink, Prometheus, and Grafana. Open http://localhost:3000. The home dashboard is the sink peak, the gaps between arrivals, and each member's phase relative to its own process clock.
+
+Sync and desync are the same image. The stepper comes from the environment, not from a second build. `STRATEGY` defaults to `desync`. On PowerShell, `$env:STRATEGY = "kuramoto"` before `docker compose up` switches the fleet; leave `K` unset and the omitted Kuramoto coupling stays 2. `T`, `ALPHA`, and `D` are the other knobs. A local `.env` is picked up by Compose and is gitignored.
+
+`docker compose logs node-a` is the member's slog line: id, phase, neighbor count, and whether it fired.
 
 ## Layout
 
@@ -100,3 +109,5 @@ go run ./cmd/node -id b -listen 127.0.0.1:9002 -peers a=127.0.0.1:9001 -sink htt
 - `cmd/sim` — one simulated fleet
 - `cmd/node` — one member: tick, UDP gossip, fire, phase offset
 - `cmd/sink` — HTTP arrivals, peak, `/metrics`
+- `compose.yaml` — six members, sink, Prometheus, Grafana
+- `dashboards/` — the Grafana board provisioned on startup

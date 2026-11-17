@@ -15,24 +15,69 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Starovoitov/phasefleet/internal/clienv"
 	"github.com/Starovoitov/phasefleet/internal/core"
 	"github.com/Starovoitov/phasefleet/internal/gossip"
 )
 
 func main() {
-	id := flag.String("id", "", "member id")
-	listen := flag.String("listen", ":9000", "UDP listen address")
-	peerList := flag.String("peers", "", "comma-separated id=host:port")
-	peerFile := flag.String("peers-file", "", "file of peers, one id=host:port or \"id host:port\" per line")
-	strategy := flag.String("strategy", "kuramoto", "kuramoto or desync")
-	k := flag.Float64("K", 0, "Kuramoto coupling; omitted on kuramoto means 2")
-	alpha := flag.Float64("alpha", 0.5, "DESYNC fraction of the centering move")
-	period := flag.Float64("T", 1, "period of this member")
-	dt := flag.Float64("dt", -1, "tick length; default T/100")
-	phase := flag.Float64("phase", math.NaN(), "initial phase in radians; default is a hash of -id")
-	sink := flag.String("sink", "", "sink base URL; empty logs the firing only")
-	metricsAddr := flag.String("metrics", ":9100", "HTTP address for /metrics; empty disables it")
-	ticks := flag.Int("ticks", 0, "steps to run; 0 runs until interrupted")
+	kDefault, kFromEnv, err := clienv.Float("PHASEFLEET_K")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+	alphaDefault, alphaSet, err := clienv.Float("PHASEFLEET_ALPHA")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+	if !alphaSet {
+		alphaDefault = 0.5
+	}
+	periodDefault, periodSet, err := clienv.Float("PHASEFLEET_T")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+	if !periodSet {
+		periodDefault = 1
+	}
+	dtDefault, dtSet, err := clienv.Float("PHASEFLEET_DT")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+	if !dtSet {
+		dtDefault = -1
+	}
+	phaseDefault := math.NaN()
+	if v, ok, err := clienv.Float("PHASEFLEET_PHASE"); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	} else if ok {
+		phaseDefault = v
+	}
+	ticksDefault := 0
+	if v, ok, err := clienv.Int("PHASEFLEET_TICKS"); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	} else if ok {
+		ticksDefault = v
+	}
+
+	id := flag.String("id", clienv.String("PHASEFLEET_ID", ""), "member id")
+	listen := flag.String("listen", clienv.String("PHASEFLEET_LISTEN", ":9000"), "UDP listen address")
+	peerList := flag.String("peers", clienv.String("PHASEFLEET_PEERS", ""), "comma-separated id=host:port")
+	peerFile := flag.String("peers-file", clienv.String("PHASEFLEET_PEERS_FILE", ""), "file of peers, one id=host:port or \"id host:port\" per line")
+	strategy := flag.String("strategy", clienv.String("PHASEFLEET_STRATEGY", "kuramoto"), "kuramoto or desync")
+	k := flag.Float64("K", kDefault, "Kuramoto coupling; omitted on kuramoto means 2")
+	alpha := flag.Float64("alpha", alphaDefault, "DESYNC fraction of the centering move")
+	period := flag.Float64("T", periodDefault, "period of this member")
+	dt := flag.Float64("dt", dtDefault, "tick length; default T/100")
+	phase := flag.Float64("phase", phaseDefault, "initial phase in radians; default is a hash of -id")
+	sink := flag.String("sink", clienv.String("PHASEFLEET_SINK", ""), "sink base URL; empty logs the firing only")
+	metricsAddr := flag.String("metrics", clienv.Optional("PHASEFLEET_METRICS", ":9100"), "HTTP address for /metrics; empty disables it")
+	ticks := flag.Int("ticks", ticksDefault, "steps to run; 0 runs until interrupted")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
@@ -52,7 +97,7 @@ func main() {
 		slog.Error("dt must be positive")
 		os.Exit(2)
 	}
-	kSet := false
+	kSet := kFromEnv
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "K" {
 			kSet = true

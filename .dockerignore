@@ -1,0 +1,7 @@
+.git
+.github
+notes
+bin
+experiments/out
+*.exe
+*.test
