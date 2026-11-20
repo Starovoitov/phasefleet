@@ -75,7 +75,7 @@ At large `N` the relative jitter gap shrinks (about 1.24× the ideal at 10000 me
 
 The rows where the spread pays for itself are the ones near capacity: the ideal is a handful of concurrent runs, and jitter or hash still pile several times that. There DESYNC matches the ideal, and after a loss it rebuilds the gaps. Jitter and hash do not.
 
-The compromises behind that boundary are in [docs/design.md](docs/design.md): why this is not a clock, why a negative Kuramoto coupling is not an even schedule, why the peak is taken from the sink, and why one Kubernetes cluster does not span regions.
+The compromises behind that boundary are in [docs/design.md](docs/design.md): why this is not a clock, why a negative Kuramoto coupling is not an even schedule, why the peak is taken from the sink, why one fixed false phase drags the mean, and why one Kubernetes cluster does not span regions.
 
 ## Requirements
 
@@ -151,17 +151,27 @@ kubectl -n phasefleet rollout status statefulset/node
 
 The dashboard phase series should pull together. Raw phase in PromQL is not the source for the order parameter.
 
+One locked phase, on the same image: the StatefulSet steps with the circular median (`PHASEFLEET_AGGREGATE=median`, `K = 8`) and a pod named `liar` publishes `π` without listening. The honest series stay on their own rhythm. Prometheus on this overlay also scrapes `liar`. The simulator comparison, mean against median, is in [docs/design.md](docs/design.md).
+
+```
+kubectl apply -k deploy/overlays/byzantine
+kubectl -n phasefleet rollout status statefulset/node
+kubectl -n phasefleet rollout status deployment/liar
+```
+
+Rebuild and `kind load` the image first, so the node binary knows `-aggregate` and `-lock`. Regenerate the curves with `go run ./experiments/byzantine`.
+
 ## Layout
 
-- `internal/core` — phase wrap, order parameter, Kuramoto and DESYNC `Stepper`
+- `internal/core` — phase wrap, order parameter, Kuramoto, circular median, and DESYNC `Stepper`
 - `internal/sim` — in-process fleet, delay, peak, recovery
 - `internal/gossip` — UDP transport, `{id, phase, seq, sent_at}`, static and DNS `PeerSource`
 - `internal/sink` — arrivals, peak, interval histogram
-- `experiments` — the grid above, and the script that writes the table
+- `experiments` — the grid above, the locked-phase curves, and the script that writes the table
 - `cmd/sim` — one simulated fleet
 - `cmd/node` — one member: tick, UDP gossip, fire, phase offset
 - `cmd/sink` — HTTP arrivals, peak, `/metrics`
 - `compose.yaml` — six members, sink, Prometheus, Grafana
-- `deploy/` — kustomize base, and overlays `desync` and `sync`
+- `deploy/` — kustomize base, and overlays `desync`, `sync`, and `byzantine`
 - `deploy/base/config/dashboards/` — the Grafana board provisioned on startup
 - `docs/design.md` — the decisions behind the table

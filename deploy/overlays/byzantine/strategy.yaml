@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: node
+spec:
+  template:
+    spec:
+      containers:
+        - name: node
+          env:
+            - name: PHASEFLEET_STRATEGY
+              value: kuramoto
+            - name: PHASEFLEET_AGGREGATE
+              value: median
+            - name: PHASEFLEET_K
+              value: "8"

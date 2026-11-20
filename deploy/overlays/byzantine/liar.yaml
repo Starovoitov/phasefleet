@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: liar
+  labels:
+    app: liar
+spec:
+  selector:
+    app: liar
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liar
+  labels:
+    app: liar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: liar
+  template:
+    metadata:
+      labels:
+        app: liar
+    spec:
+      containers:
+        - name: node
+          image: phasefleet:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: gossip
+              containerPort: 9000
+              protocol: UDP
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          env:
+            - name: PHASEFLEET_ID
+              value: liar
+            - name: PHASEFLEET_PEERS_DNS
+              value: node.phasefleet.svc.cluster.local
+            - name: PHASEFLEET_SINK
+              value: http://sink:8080
+            - name: PHASEFLEET_LISTEN
+              value: ":9000"
+            - name: PHASEFLEET_METRICS
+              value: ":9100"
+            - name: PHASEFLEET_STRATEGY
+              value: kuramoto
+            - name: PHASEFLEET_T
+              value: "10"
+            - name: PHASEFLEET_K
+              value: "8"
+            - name: PHASEFLEET_LOCK
+              value: "true"
+            - name: PHASEFLEET_PHASE
+              value: "3.141592653589793"
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 5

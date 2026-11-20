@@ -31,6 +31,7 @@ type config struct {
 	peers   gossip.PeerSource
 	ticks   int
 	wait    time.Duration
+	lock    bool
 	log     *slog.Logger
 	onPhase func(float64)
 }
@@ -128,8 +129,12 @@ func (n *node) step(ctx context.Context) error {
 	prev := n.phase
 	n.mu.Unlock()
 
-	next := n.cfg.stepper.Step(prev, obs, n.cfg.dt)
-	didFire := fired(prev, next, n.cfg.omega, n.cfg.dt)
+	next := prev
+	var didFire bool
+	if !n.cfg.lock {
+		next = n.cfg.stepper.Step(prev, obs, n.cfg.dt)
+		didFire = fired(prev, next, n.cfg.omega, n.cfg.dt)
+	}
 
 	n.mu.Lock()
 	n.phase = next

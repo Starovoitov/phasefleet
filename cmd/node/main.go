@@ -71,6 +71,8 @@ func main() {
 	peerFile := flag.String("peers-file", clienv.String("PHASEFLEET_PEERS_FILE", ""), "file of peers, one id=host:port or \"id host:port\" per line")
 	peersDNS := flag.String("peers-dns", clienv.String("PHASEFLEET_PEERS_DNS", ""), "headless Service FQDN; peers come from SRV _gossip._udp")
 	strategy := flag.String("strategy", clienv.String("PHASEFLEET_STRATEGY", "kuramoto"), "kuramoto or desync")
+	aggregate := flag.String("aggregate", clienv.String("PHASEFLEET_AGGREGATE", "mean"), "mean or median; median is kuramoto only")
+	lock := flag.Bool("lock", envLock("PHASEFLEET_LOCK"), "publish -phase forever and ignore neighbors")
 	k := flag.Float64("K", kDefault, "Kuramoto coupling; omitted on kuramoto means 2")
 	alpha := flag.Float64("alpha", alphaDefault, "DESYNC fraction of the centering move")
 	period := flag.Float64("T", periodDefault, "period of this member")
@@ -106,7 +108,7 @@ func main() {
 	})
 	name := *strategy
 	coupling := defaultKuramotoK(name, *k, kSet)
-	stepper, err := newStepper(name, *period, coupling, *alpha)
+	stepper, err := newStepper(name, *aggregate, *period, coupling, *alpha)
 	if err != nil {
 		slog.Error("strategy", "err", err)
 		os.Exit(2)
@@ -151,6 +153,8 @@ func main() {
 		"id", *id,
 		"listen", tr.Addr(),
 		"strategy", name,
+		"aggregate", *aggregate,
+		"lock", *lock,
 		"peers", staticN,
 		"peers_dns", *peersDNS,
 		"sink", *sink,
@@ -167,6 +171,7 @@ func main() {
 			peers:   peers,
 			ticks:   *ticks,
 			wait:    time.Duration(step * float64(time.Second)),
+			lock:    *lock,
 			onPhase: onPhase,
 		},
 		tr: tr,
@@ -177,14 +182,35 @@ func main() {
 	}
 }
 
-func newStepper(strategy string, period, k, alpha float64) (core.Stepper, error) {
+func newStepper(strategy, aggregate string, period, k, alpha float64) (core.Stepper, error) {
+	switch aggregate {
+	case "mean", "median":
+	default:
+		return nil, fmt.Errorf("unknown aggregate %q", aggregate)
+	}
+	if aggregate == "median" && strategy != "kuramoto" && strategy != "sync" {
+		return nil, fmt.Errorf("median aggregate is only defined for kuramoto")
+	}
 	switch strategy {
 	case "kuramoto", "sync":
+		if aggregate == "median" {
+			return core.NewMedianKuramoto(period, k), nil
+		}
 		return core.NewKuramoto(period, k), nil
 	case "desync":
 		return core.NewDesync(period, alpha), nil
 	default:
 		return nil, fmt.Errorf("unknown strategy %q", strategy)
+	}
+}
+
+// envLock is true for 1, true, and yes. A blank variable stays false.
+func envLock(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
 	}
 }
 

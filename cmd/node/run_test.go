@@ -259,6 +259,39 @@ func TestParsePeers(t *testing.T) {
 	}
 }
 
+func TestLockedNodeKeepsItsPhase(t *testing.T) {
+	n := testNode("a", 1.25, idleTransport{}, "http://127.0.0.1:1")
+	n.cfg.lock = true
+	n.phase = n.cfg.phase
+	n.heard = map[string]core.Phase{"b": 0}
+	if err := n.step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	phase, neighbors := n.snapshot()
+	if math.Abs(float64(phase)-1.25) > 1e-12 {
+		t.Fatalf("phase = %v, want 1.25", phase)
+	}
+	if neighbors != 1 {
+		t.Fatalf("neighbors = %d, want the false phase recorded and unused", neighbors)
+	}
+}
+
+func TestMedianAggregate(t *testing.T) {
+	got, err := newStepper("kuramoto", "median", 1, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.(core.MedianKuramoto); !ok {
+		t.Fatalf("stepper = %T, want MedianKuramoto", got)
+	}
+	if _, err := newStepper("desync", "median", 1, 0, 0.5); err == nil {
+		t.Fatal("expected median to be refused for desync")
+	}
+	if _, err := newStepper("kuramoto", "nope", 1, 2, 0); err == nil {
+		t.Fatal("expected unknown aggregate to be rejected")
+	}
+}
+
 func TestDefaultKuramotoK(t *testing.T) {
 	if got := defaultKuramotoK("kuramoto", 0, false); got != 2 {
 		t.Fatalf("omitted K = %v, want 2", got)

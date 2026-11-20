@@ -20,6 +20,18 @@ When `N·d` is much smaller than `T`, a one-shot jitter draw already matches tha
 
 DESYNC earns its keep near `N ≈ T/d`, where the ideal is a handful of overlapping runs and jitter or hash still stack several times that. After members disappear, DESYNC closes the gaps. Jitter and hash leave the holes where the dead members were.
 
+## A fixed false phase
+
+A silent member is absent from the neighbor list. DESYNC rearranges the members still heard. There is no observation to reject, and the median is not part of that path.
+
+A member that stays up, keeps publishing one phase, and ignores everyone else is a false observation. The Kuramoto mean counts it as one more term. Honest members that start together stay together, and the coupling drags that clump toward the fixed phase. The fixed phase does not rotate, so a large enough `K` cancels `ω₀` and the clump stops. Replacing the mean with the circular median leaves the clump on its own rhythm: one phase cannot move the median while the others outnumber it.
+
+Seed 1, eleven members, one of them held at `π`, `K = 200`, `T = 1`. Under the mean the honest clump finishes 0.3196 radians from `π`, order `r = 1`, and advances 0 over the last period. Under the median the same clump keeps `r = 1` and advances 6.2832, a full turn. The curves are `experiments/out/byzantine.svg`, from `go run ./experiments/byzantine`.
+
+`PHASEFLEET_AGGREGATE=median` selects that step on the node. `deploy/overlays/byzantine` runs it at `K = 8` and `T = 10`, with an extra pod locked at `π`. Six neighbors put the mean's entrainment threshold near 3.8, so this `K` is on the side where the mean would follow the locked pod. The StatefulSet uses the median.
+
+A member that reports a different phase to each peer is outside this run. The median is one aggregator, not a bound on every byzantine fault. Packet signatures are a separate check. The W-MSR family is not implemented.
+
 ## One cluster does not span regions
 
 A single Kubernetes control plane across regions fails on etcd round-trip time, 50–150 ms, before this algorithm does. The geo layout is independent machines, one region each, with gossip between them and no shared control plane. Cluster mesh and a multi-cluster network are out of scope for the same reason.

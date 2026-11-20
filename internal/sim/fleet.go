@@ -43,6 +43,15 @@ type Config struct {
 	KillAt       int
 	KillFraction float64
 	Trace        bool
+	// Aggregate is "mean" (the default) or "median". Median replaces the
+	// Kuramoto average with the circular median. DESYNC has no average,
+	// so median is refused there.
+	Aggregate string
+	// Lock holds LockIndex at LockedPhase. That member stays a neighbor
+	// and does not step. LockIndex is ignored when Lock is false.
+	Lock        bool
+	LockIndex   int
+	LockedPhase float64
 }
 
 // Node is one member after a run.
@@ -140,6 +149,9 @@ func New(cfg Config) (*Fleet, error) {
 	if cfg.SinkDelay != nil && len(cfg.SinkDelay) != cfg.N {
 		return nil, fmt.Errorf("sink delay must have %d entries", cfg.N)
 	}
+	if cfg.Lock && (cfg.LockIndex < 0 || cfg.LockIndex >= cfg.N) {
+		return nil, fmt.Errorf("lock index %d out of range", cfg.LockIndex)
+	}
 	stepper, err := newStepper(cfg)
 	if err != nil {
 		return nil, err
@@ -172,6 +184,7 @@ func New(cfg Config) (*Fleet, error) {
 		f.id[i] = strconv.Itoa(i)
 		f.order[i] = i
 	}
+	f.applyLock()
 	if f.maxDelay > 0 {
 		f.hist = make([][]core.Phase, f.maxDelay+1)
 		for i := range f.hist {
@@ -207,6 +220,7 @@ func (f *Fleet) SetDt(dt float64) { f.dt = dt }
 // Reseed replaces phases and revives every node. The strategy stays.
 func (f *Fleet) Reseed(seed int64) {
 	copy(f.phase, initialPhases(f.cfg.Strategy, len(f.phase), seed))
+	f.applyLock()
 	for i := range f.alive {
 		f.alive[i] = true
 	}
@@ -320,7 +334,7 @@ func (f *Fleet) result(fires []Fire) Result {
 func (f *Fleet) advanceFree() []Fire {
 	fires := make([]Fire, 0, f.nAlive)
 	for i, alive := range f.alive {
-		if !alive {
+		if !alive || f.locked(i) {
 			continue
 		}
 		prev := f.phase[i]
@@ -336,6 +350,10 @@ func (f *Fleet) advanceDesync() []Fire {
 	fires := make([]Fire, 0, f.nAlive)
 	for k := 0; k < f.nAlive; k++ {
 		i := f.order[k]
+		if f.locked(i) {
+			f.next[i] = f.phase[i]
+			continue
+		}
 		obs := f.flanks(k)
 		prev := f.phase[i]
 		next := f.stepper.Step(prev, obs, f.dt)
@@ -358,6 +376,10 @@ func (f *Fleet) advanceFull() []Fire {
 			continue
 		}
 		prev := f.phase[i]
+		if f.locked(i) {
+			f.next[i] = prev
+			continue
+		}
 		obs := f.neighbors(i)
 		next := f.stepper.Step(prev, obs, f.dt)
 		f.next[i] = next
@@ -568,11 +590,37 @@ func (f *Fleet) livePhases() []core.Phase {
 	return out
 }
 
+func (f *Fleet) locked(i int) bool {
+	return f.cfg.Lock && i == f.cfg.LockIndex
+}
+
+func (f *Fleet) applyLock() {
+	if !f.cfg.Lock {
+		return
+	}
+	f.phase[f.cfg.LockIndex] = core.Wrap(f.cfg.LockedPhase)
+}
+
 func newStepper(cfg Config) (core.Stepper, error) {
+	aggregate := cfg.Aggregate
+	if aggregate == "" {
+		aggregate = "mean"
+	}
+	switch aggregate {
+	case "mean", "median":
+	default:
+		return nil, fmt.Errorf("unknown aggregate %q", cfg.Aggregate)
+	}
+	if aggregate == "median" && cfg.Strategy != StrategyKuramoto {
+		return nil, fmt.Errorf("median aggregate is only defined for kuramoto")
+	}
 	switch cfg.Strategy {
 	case StrategyAligned, StrategyJitter, StrategyHash:
 		return core.NewKuramoto(cfg.T, 0), nil
 	case StrategyKuramoto:
+		if aggregate == "median" {
+			return core.NewMedianKuramoto(cfg.T, cfg.K), nil
+		}
 		return core.NewKuramoto(cfg.T, cfg.K), nil
 	case StrategyDesync:
 		return core.NewDesync(cfg.T, cfg.Alpha), nil
