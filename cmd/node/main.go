@@ -69,6 +69,7 @@ func main() {
 	listen := flag.String("listen", clienv.String("PHASEFLEET_LISTEN", ":9000"), "UDP listen address")
 	peerList := flag.String("peers", clienv.String("PHASEFLEET_PEERS", ""), "comma-separated id=host:port")
 	peerFile := flag.String("peers-file", clienv.String("PHASEFLEET_PEERS_FILE", ""), "file of peers, one id=host:port or \"id host:port\" per line")
+	peersDNS := flag.String("peers-dns", clienv.String("PHASEFLEET_PEERS_DNS", ""), "headless Service FQDN; peers come from SRV _gossip._udp")
 	strategy := flag.String("strategy", clienv.String("PHASEFLEET_STRATEGY", "kuramoto"), "kuramoto or desync")
 	k := flag.Float64("K", kDefault, "Kuramoto coupling; omitted on kuramoto means 2")
 	alpha := flag.Float64("alpha", alphaDefault, "DESYNC fraction of the centering move")
@@ -110,7 +111,7 @@ func main() {
 		slog.Error("strategy", "err", err)
 		os.Exit(2)
 	}
-	peers, err := parsePeers(*peerList, *peerFile)
+	peers, staticN, err := peerSource(*peerList, *peerFile, *peersDNS)
 	if err != nil {
 		slog.Error("peers", "err", err)
 		os.Exit(2)
@@ -150,7 +151,8 @@ func main() {
 		"id", *id,
 		"listen", tr.Addr(),
 		"strategy", name,
-		"peers", len(peers.List),
+		"peers", staticN,
+		"peers_dns", *peersDNS,
 		"sink", *sink,
 		"metrics", *metricsAddr,
 	)
@@ -192,6 +194,28 @@ func defaultKuramotoK(name string, k float64, kSet bool) float64 {
 		return 2
 	}
 	return k
+}
+
+func peerSource(list, file, dnsName string) (gossip.PeerSource, int, error) {
+	static, err := parsePeers(list, file)
+	if err != nil {
+		return nil, 0, err
+	}
+	var sources []gossip.PeerSource
+	if len(static.List) > 0 {
+		sources = append(sources, static)
+	}
+	if dnsName != "" {
+		sources = append(sources, gossip.NewDNS(dnsName))
+	}
+	switch len(sources) {
+	case 0:
+		return gossip.Static{}, 0, nil
+	case 1:
+		return sources[0], len(static.List), nil
+	default:
+		return gossip.Merge(sources), len(static.List), nil
+	}
 }
 
 func parsePeers(list, file string) (gossip.Static, error) {

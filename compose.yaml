@@ -93,6 +93,6 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - ./deploy/base/config/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/base/config/providers:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/base/config/dashboards:/var/lib/grafana/dashboards:ro

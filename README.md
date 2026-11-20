@@ -75,6 +75,8 @@ At large `N` the relative jitter gap shrinks (about 1.24× the ideal at 10000 me
 
 The rows where the spread pays for itself are the ones near capacity: the ideal is a handful of concurrent runs, and jitter or hash still pile several times that. There DESYNC matches the ideal, and after a loss it rebuilds the gaps. Jitter and hash do not.
 
+The compromises behind that boundary are in [docs/design.md](docs/design.md): why this is not a clock, why a negative Kuramoto coupling is not an even schedule, why the peak is taken from the sink, and why one Kubernetes cluster does not span regions.
+
 ## Requirements
 
 Go 1.27.
@@ -99,15 +101,67 @@ Sync and desync are the same image. The stepper comes from the environment, not 
 
 `docker compose logs node-a` is the member's slog line: id, phase, neighbor count, and whether it fired.
 
+```mermaid
+flowchart LR
+  subgraph members [members]
+    a[node a]
+    b[node b]
+    n[node n]
+  end
+  a -- "UDP phase" --> b
+  b -- "UDP phase" --> n
+  a -- fire --> sink[sink]
+  b -- fire --> sink
+  n -- fire --> sink
+  sink --> prom[Prometheus]
+  a --> prom
+  prom --> graf[Grafana]
+```
+
+Compose uses a fixed peer list. The kind fleet below discovers pods through the headless Service instead. The image, the sink, and the dashboard are the same.
+
+## Kind
+
+No Helm. The manifests are kustomize: a StatefulSet, a headless Service named `node` with UDP port `gossip`, the sink, Prometheus, and Grafana. `deploy/overlays/desync` is the base strategy. `deploy/overlays/sync` is the same image with `PHASEFLEET_STRATEGY=kuramoto`, and an omitted `K` stays 2.
+
+```
+docker build -t phasefleet:latest .
+kind load docker-image phasefleet:latest
+kubectl apply -k deploy/overlays/desync
+kubectl -n phasefleet rollout status statefulset/node
+kubectl -n phasefleet port-forward svc/grafana 3000:3000
+```
+
+Grafana is http://localhost:3000. The sink peak is the record of the spread. Each member's id is its pod name. Peers come from SRV `_gossip._udp.node.phasefleet.svc.cluster.local`, so a pod that disappears drops out of the next lookup.
+
+To watch a member leave and the others close up:
+
+```
+kubectl -n phasefleet delete pod node-0
+```
+
+The peak moves when that member stops firing, then DESYNC spreads the ones still up. The StatefulSet starts `node-0` again and it rejoins the DNS name. `kubectl -n phasefleet scale statefulset/node --replicas=4` is the same kind of change with a new count. Prometheus scrapes `node-0` through `node-5`, so a scale past six needs a matching target list.
+
+Sync, on the same image:
+
+```
+kubectl apply -k deploy/overlays/sync
+kubectl -n phasefleet rollout status statefulset/node
+```
+
+The dashboard phase series should pull together. Raw phase in PromQL is not the source for the order parameter.
+
 ## Layout
 
 - `internal/core` — phase wrap, order parameter, Kuramoto and DESYNC `Stepper`
 - `internal/sim` — in-process fleet, delay, peak, recovery
-- `internal/gossip` — UDP transport, `{id, phase, seq, sent_at}`, `PeerSource`
+- `internal/gossip` — UDP transport, `{id, phase, seq, sent_at}`, static and DNS `PeerSource`
 - `internal/sink` — arrivals, peak, interval histogram
 - `experiments` — the grid above, and the script that writes the table
 - `cmd/sim` — one simulated fleet
 - `cmd/node` — one member: tick, UDP gossip, fire, phase offset
 - `cmd/sink` — HTTP arrivals, peak, `/metrics`
 - `compose.yaml` — six members, sink, Prometheus, Grafana
-- `dashboards/` — the Grafana board provisioned on startup
+- `deploy/` — kustomize base, and overlays `desync` and `sync`
+- `deploy/base/config/dashboards/` — the Grafana board provisioned on startup
+- `docs/design.md` — the decisions behind the table

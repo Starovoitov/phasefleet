@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sink
+  labels:
+    app: sink
+spec:
+  selector:
+    app: sink
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sink
+  labels:
+    app: sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sink
+  template:
+    metadata:
+      labels:
+        app: sink
+    spec:
+      containers:
+        - name: sink
+          image: phasefleet:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/sink"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PHASEFLEET_LISTEN
+              value: ":8080"
+            - name: PHASEFLEET_D
+              value: "1"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5

@@ -219,6 +219,27 @@ func TestFired(t *testing.T) {
 	}
 }
 
+func TestPeerSourceJoinsStaticAndDNS(t *testing.T) {
+	src, n, err := peerSource("b=127.0.0.1:9002", "", "node.phasefleet.svc.cluster.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("static count = %d", n)
+	}
+	if _, ok := src.(gossip.Merge); !ok {
+		t.Fatalf("source = %T, want gossip.Merge", src)
+	}
+	only, _, err := peerSource("", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	static, ok := only.(gossip.Static)
+	if !ok || len(static.List) != 0 {
+		t.Fatalf("empty source = %#v", only)
+	}
+}
+
 func TestParsePeers(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "peers.txt")

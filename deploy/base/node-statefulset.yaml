@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: node
+  labels:
+    app: node
+spec:
+  serviceName: node
+  replicas: 6
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: node
+  template:
+    metadata:
+      labels:
+        app: node
+    spec:
+      containers:
+        - name: node
+          image: phasefleet:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: gossip
+              containerPort: 9000
+              protocol: UDP
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          env:
+            - name: PHASEFLEET_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PHASEFLEET_PEERS_DNS
+              value: node.phasefleet.svc.cluster.local
+            - name: PHASEFLEET_SINK
+              value: http://sink:8080
+            - name: PHASEFLEET_LISTEN
+              value: ":9000"
+            - name: PHASEFLEET_METRICS
+              value: ":9100"
+            - name: PHASEFLEET_STRATEGY
+              value: desync
+            - name: PHASEFLEET_T
+              value: "10"
+            - name: PHASEFLEET_ALPHA
+              value: "0.5"
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 5

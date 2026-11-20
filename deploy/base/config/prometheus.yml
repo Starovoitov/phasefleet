@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+
+scrape_configs:
+  - job_name: sink
+    static_configs:
+      - targets: ["sink:8080"]
+  - job_name: nodes
+    static_configs:
+      - targets: ["node-0.node:9100"]
+        labels: {id: node-0}
+      - targets: ["node-1.node:9100"]
+        labels: {id: node-1}
+      - targets: ["node-2.node:9100"]
+        labels: {id: node-2}
+      - targets: ["node-3.node:9100"]
+        labels: {id: node-3}
+      - targets: ["node-4.node:9100"]
+        labels: {id: node-4}
+      - targets: ["node-5.node:9100"]
+        labels: {id: node-5}

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: phasefleet
+resources:
+  - namespace.yaml
+  - node-service.yaml
+  - node-statefulset.yaml
+  - sink.yaml
+  - prometheus.yaml
+  - grafana.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - prometheus.yml=config/prometheus.yml
+  - name: grafana-datasources
+    files:
+      - datasource.yaml=config/datasources/datasource.yaml
+  - name: grafana-dashboards
+    files:
+      - provider.yaml=config/providers/provider.yaml
+  - name: grafana-dashboard
+    files:
+      - phasefleet.json=config/dashboards/phasefleet.json
